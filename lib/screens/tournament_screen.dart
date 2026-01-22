@@ -2,172 +2,113 @@ import 'package:flutter/material.dart';
 
 class TournamentScreen extends StatefulWidget {
   final String title;
-  final String format; // 'AMERICANO', 'MEXICANO', 'WINNER_COURT'
+  final List<dynamic> players;
+  final int courts;
 
-  const TournamentScreen({super.key, required this.title, required this.format});
+  const TournamentScreen({
+    super.key, 
+    required this.title, 
+    required this.players, 
+    required this.courts
+  });
 
   @override
   State<TournamentScreen> createState() => _TournamentScreenState();
 }
 
-class _TournamentScreenState extends State<TournamentScreen> {
-  // 1. СПИСОК ИГРОКОВ (Поле isMe=true означает, что это ты)
-  List<Map<String, dynamic>> players = [
-    {'name': 'Я (Вы)', 'points': 0, 'matches': 0, 'isMe': true}, 
-    {'name': 'Сергей', 'points': 0, 'matches': 0, 'isMe': false},
-    {'name': 'Иван', 'points': 0, 'matches': 0, 'isMe': false},
-    {'name': 'Петр', 'points': 0, 'matches': 0, 'isMe': false},
-    {'name': 'Дима', 'points': 0, 'matches': 0, 'isMe': false},
-    {'name': 'Алекс', 'points': 0, 'matches': 0, 'isMe': false},
-    {'name': 'Макс', 'points': 0, 'matches': 0, 'isMe': false},
-    {'name': 'Олег', 'points': 0, 'matches': 0, 'isMe': false},
-  ];
-
-  List<Map<String, dynamic>> currentRoundMatches = [];
-  int roundNumber = 0;
+// Добавляем SingleTickerProviderStateMixin для работы анимации вкладок
+class _TournamentScreenState extends State<TournamentScreen> with SingleTickerProviderStateMixin {
+  int round = 1;
+  List<Map<String, dynamic>> currentMatches = [];
+  Map<String, int> scores = {};
+  bool isTournamentFinished = false;
+  
+  // Явный контроллер для вкладок (FIX для кнопки "Посмотреть результаты")
+  late TabController _tabController;
 
   @override
   void initState() {
     super.initState();
-    _generateNextRound();
-  }
-
-  // ⚖️ ГЛАВНАЯ ФИШКА: ВЕСА ФОРМАТОВ
-  double _getFormatWeight(String type) {
-    switch (type) {
-      case 'TOURNAMENT': return 1.2;   // Серьезный турнир
-      case 'MATCH': return 1.0;        // Обычная игра
-      case 'AMERICANO': return 0.85;   // Классика
-      case 'WINNER_COURT': return 0.8; // Динамично
-      case 'MEXICANO': return 0.75;    // Фаново/Рандомно
-      default: return 1.0;
+    // Инициализируем контроллер: 2 вкладки
+    _tabController = TabController(length: 2, vsync: this);
+    
+    // Инициализируем очки
+    for (var p in widget.players) {
+      scores[p] = 0;
     }
+    _generateRound();
   }
 
-  // --- ЛОГИКА ИГРЫ ---
+  @override
+  void dispose() {
+    _tabController.dispose(); // Обязательно освобождаем ресурсы
+    super.dispose();
+  }
 
-  void _generateNextRound() {
+  void _generateRound() {
+    if (isTournamentFinished) return;
+
     setState(() {
-      roundNumber++;
-      currentRoundMatches.clear();
-      
-      // Простая генерация пар (для MVP - Random Shuffle)
-      // В полной версии здесь будет логика Mexicano (лидеры с лидерами)
-      var availablePlayers = List.of(players)..shuffle();
-      
-      while (availablePlayers.length >= 4) {
-        currentRoundMatches.add({
-          'court': 'Корт ${currentRoundMatches.length + 1}',
-          't1p1': availablePlayers.removeAt(0),
-          't1p2': availablePlayers.removeAt(0),
-          't2p1': availablePlayers.removeAt(0),
-          't2p2': availablePlayers.removeAt(0),
+      List<dynamic> pool = List.from(widget.players);
+      pool.shuffle(); // Перемешиваем игроков
+
+      currentMatches.clear();
+      int matchesCount = (pool.length / 4).floor();
+      if (matchesCount > widget.courts) matchesCount = widget.courts;
+
+      for (int i = 0; i < matchesCount; i++) {
+        currentMatches.add({
+          'court': i + 1,
+          'team1': [pool[i * 4], pool[i * 4 + 1]],
+          'team2': [pool[i * 4 + 2], pool[i * 4 + 3]],
           'score1': 0,
           'score2': 0,
-          'isFinished': false,
         });
       }
     });
   }
 
-  void _submitScore(int matchIndex, int score1, int score2) {
-    setState(() {
-      var match = currentRoundMatches[matchIndex];
-      match['score1'] = score1;
-      match['score2'] = score2;
-      match['isFinished'] = true;
-
-      _addPoints(match['t1p1'], score1);
-      _addPoints(match['t1p2'], score1);
-      _addPoints(match['t2p1'], score2);
-      _addPoints(match['t2p2'], score2);
-    });
-  }
-
-  void _addPoints(Map<String, dynamic> playerRef, int points) {
-    var p = players.firstWhere((element) => element['name'] == playerRef['name']);
-    p['points'] = (p['points'] as int) + points;
-    p['matches'] = (p['matches'] as int) + 1;
-  }
-
-  // 🔥 ЗАВЕРШЕНИЕ ТУРНИРА И РАСЧЕТ РЕЙТИНГА
-  void _finishTournament() {
-    // 1. Считаем статистику
-    double totalPoints = 0;
-    int totalPlayers = players.length;
-    var myPlayer = players.firstWhere((p) => p['isMe'] == true);
-    
-    // Сортировка таблицы
-    players.sort((a, b) => (b['points'] as int).compareTo(a['points'] as int));
-    int myRank = players.indexOf(myPlayer) + 1;
-
-    for (var p in players) {
-      totalPoints += p['points'] as int;
+  void _finishRound() {
+    // 1. Сохраняем очки текущего раунда
+    for (var match in currentMatches) {
+      int s1 = match['score1'];
+      int s2 = match['score2'];
+      
+      for (var p in match['team1']) scores[p] = (scores[p] ?? 0) + s1;
+      for (var p in match['team2']) scores[p] = (scores[p] ?? 0) + s2;
     }
-    double averagePoints = totalPoints / totalPlayers; 
-    double myPoints = (myPlayer['points'] as int).toDouble();
-
-    // 2. Расчет разницы (Ты против среднего)
-    double diff = myPoints - averagePoints; 
     
-    // 3. ПРИМЕНЯЕМ ВЕС ФОРМАТА ⚖️
-    double formatK = _getFormatWeight(widget.format);
-    
-    // Формула: (Разница * Вес) / 1000
-    double ratingDelta = (diff * formatK) / 1000.0; 
+    // 2. Увеличиваем раунд и генерируем новые пары
+    setState(() {
+      round++;
+    });
+    _generateRound();
+  }
 
-    // Лимиты (чтобы рейтинг не сломался от одной игры)
-    if (ratingDelta > 0.15) ratingDelta = 0.15;
-    if (ratingDelta < -0.15) ratingDelta = -0.15;
-
-    // 4. Показываем результат
+  void _finishTournamentEarly() {
     showDialog(
       context: context,
-      barrierDismissible: false,
-      builder: (ctx) => AlertDialog(
-        title: Text('🏁 ${widget.format} завершен!'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('Место: #$myRank', style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
-            const SizedBox(height: 10),
-            Text('Ваши очки: ${myPoints.toInt()}'),
-            Text('Среднее: ${averagePoints.toStringAsFixed(1)}'),
-            const SizedBox(height: 10),
-            
-            // Показываем, какой вес сработал
-            Row(
-              children: [
-                const Text('Вес формата: '),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                  decoration: BoxDecoration(color: Colors.blue[100], borderRadius: BorderRadius.circular(4)),
-                  child: Text('x$formatK', style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.blue)),
-                ),
-              ],
-            ),
-            
-            const Divider(),
-            const Text('Итог рейтинга:', style: TextStyle(color: Colors.grey)),
-            Text(
-              ratingDelta > 0 ? '+${ratingDelta.toStringAsFixed(3)} 📈' : '${ratingDelta.toStringAsFixed(3)} 📉',
-              style: TextStyle(
-                fontSize: 32, 
-                fontWeight: FontWeight.bold,
-                color: ratingDelta >= 0 ? Colors.green : Colors.red
-              ),
-            ),
-          ],
-        ),
+      builder: (context) => AlertDialog(
+        backgroundColor: const Color(0xFF1C2538),
+        title: const Text("Завершить турнир?", style: TextStyle(color: Colors.white)),
+        content: const Text("Время вышло или корты закрываются. Текущие результаты станут финальными.", style: TextStyle(color: Colors.white70)),
         actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text("Отмена", style: TextStyle(color: Colors.grey))),
           ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent),
             onPressed: () {
-              Navigator.pop(ctx); 
-              Navigator.pop(context); 
-            },
-            child: const Text('Принять'),
-          )
+              setState(() {
+                isTournamentFinished = true;
+              });
+              Navigator.pop(context);
+              
+              // ПЕРЕКЛЮЧЕНИЕ НА ВКЛАДКУ РЕЗУЛЬТАТОВ (FIX)
+              _tabController.animateTo(1); 
+              
+              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Турнир завершен! Победители определены.")));
+            }, 
+            child: const Text("Завершить сейчас", style: TextStyle(color: Colors.white))
+          ),
         ],
       ),
     );
@@ -175,138 +116,172 @@ class _TournamentScreenState extends State<TournamentScreen> {
 
   @override
   Widget build(BuildContext context) {
-    var leaderboard = List.of(players);
-    leaderboard.sort((a, b) => (b['points'] as int).compareTo(a['points'] as int));
-
+    // Убираем DefaultTabController, используем свой _tabController
     return Scaffold(
+      backgroundColor: const Color(0xFF0A0E21),
       appBar: AppBar(
-        title: Text(widget.format),
+        title: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(widget.title, style: const TextStyle(fontSize: 16)),
+            Text(isTournamentFinished ? "ФИНАЛ" : "Раунд $round", style: const TextStyle(fontSize: 12, color: Colors.greenAccent)),
+          ],
+        ),
+        backgroundColor: const Color(0xFF1C2538),
         actions: [
-          Padding(
-            padding: const EdgeInsets.only(right: 8.0),
-            child: TextButton.icon(
-              onPressed: _finishTournament,
-              icon: const Icon(Icons.flag, color: Colors.red),
-              label: const Text('Финиш', style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold)),
-            ),
-          )
+          if (!isTournamentFinished)
+            IconButton(
+              icon: const Icon(Icons.timer_off, color: Colors.redAccent),
+              tooltip: "Завершить досрочно",
+              onPressed: _finishTournamentEarly,
+            )
         ],
+        bottom: TabBar(
+          controller: _tabController, // Подключаем наш контроллер
+          indicatorColor: const Color(0xFF2979FF),
+          labelColor: Colors.white,
+          unselectedLabelColor: Colors.grey,
+          tabs: const [
+            Tab(icon: Icon(Icons.sports_tennis), text: "Игры"),
+            Tab(icon: Icon(Icons.leaderboard), text: "Таблица"),
+          ],
+        ),
       ),
-      body: Column(
+      body: TabBarView(
+        controller: _tabController, // Подключаем наш контроллер
         children: [
-          // ЛИДЕРБОРД
-          Container(
-            height: 110,
-            color: Colors.blueGrey[900],
-            child: ListView.builder(
-              scrollDirection: Axis.horizontal,
-              itemCount: leaderboard.length,
-              itemBuilder: (context, index) {
-                var p = leaderboard[index];
-                bool isMe = p['isMe'];
-                return Container(
-                  width: 85,
-                  margin: const EdgeInsets.all(8),
-                  padding: const EdgeInsets.all(8),
-                  decoration: BoxDecoration(
-                    color: isMe ? Colors.yellow[700] : Colors.white,
-                    borderRadius: BorderRadius.circular(10),
-                    border: isMe ? Border.all(color: Colors.orange, width: 3) : null,
-                  ),
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Text('#${index + 1}', style: const TextStyle(fontWeight: FontWeight.bold)),
-                      Text(p['name'], overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 12)),
-                      Text('${p['points']}', style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 18)),
-                    ],
-                  ),
-                );
-              },
-            ),
-          ),
-
-          // УПРАВЛЕНИЕ РАУНДАМИ
-          Padding(
-            padding: const EdgeInsets.all(12.0),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          // ВКЛАДКА 1: ИГРЫ
+          isTournamentFinished 
+          ? Center(child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                Text('Раунд #$roundNumber', style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
-                ElevatedButton.icon(
-                  onPressed: currentRoundMatches.every((m) => m['isFinished']) ? _generateNextRound : null,
-                  icon: const Icon(Icons.refresh),
-                  label: const Text('След. круг'),
+                const Icon(Icons.emoji_events, size: 80, color: Colors.amber),
+                const SizedBox(height: 20),
+                const Text("Турнир завершен!", style: TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.bold)),
+                const SizedBox(height: 10),
+                // КНОПКА ТЕПЕРЬ РАБОТАЕТ
+                ElevatedButton(
+                  onPressed: () => _tabController.animateTo(1), 
+                  style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF2979FF)),
+                  child: const Text("Посмотреть результаты", style: TextStyle(color: Colors.white))
                 )
               ],
-            ),
+            ))
+          : ListView(
+            padding: const EdgeInsets.all(16),
+            children: [
+              ...currentMatches.map((match) => _buildMatchCard(match)),
+              const SizedBox(height: 20),
+              ElevatedButton(
+                onPressed: _finishRound,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.green,
+                  padding: const EdgeInsets.symmetric(vertical: 16),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))
+                ),
+                child: const Text("Зафиксировать счёт и начать новый раунд", style: TextStyle(fontSize: 16, color: Colors.white, fontWeight: FontWeight.bold)),
+              ),
+            ],
           ),
-
-          // СПИСОК МАТЧЕЙ
-          Expanded(
-            child: ListView.builder(
-              itemCount: currentRoundMatches.length,
-              itemBuilder: (context, index) {
-                var match = currentRoundMatches[index];
-                TextEditingController c1 = TextEditingController();
-                TextEditingController c2 = TextEditingController();
-
-                if (match['isFinished']) {
-                  return Card(
-                    color: Colors.green[50],
-                    margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                    child: ListTile(
-                      dense: true,
-                      title: Text('${match['t1p1']['name']}/${match['t1p2']['name']} vs ${match['t2p1']['name']}/${match['t2p2']['name']}'),
-                      trailing: Text('${match['score1']} - ${match['score2']}', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-                    ),
-                  );
-                }
-
-                return Card(
-                  elevation: 3,
-                  margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                  child: Padding(
-                    padding: const EdgeInsets.all(12.0),
-                    child: Column(
-                      children: [
-                        Text(match['court'], style: TextStyle(color: Colors.grey[600], fontSize: 12)),
-                        const SizedBox(height: 8),
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            Expanded(child: Column(children: [Text(match['t1p1']['name'], style: const TextStyle(fontWeight: FontWeight.bold)), Text(match['t1p2']['name'], style: const TextStyle(fontWeight: FontWeight.bold))])),
-                            Row(
-                              children: [
-                                SizedBox(width: 40, child: TextField(controller: c1, keyboardType: TextInputType.number, textAlign: TextAlign.center, decoration: const InputDecoration(contentPadding: EdgeInsets.all(8), border: OutlineInputBorder()))),
-                                const Padding(padding: EdgeInsets.symmetric(horizontal: 5), child: Text('-')),
-                                SizedBox(width: 40, child: TextField(controller: c2, keyboardType: TextInputType.number, textAlign: TextAlign.center, decoration: const InputDecoration(contentPadding: EdgeInsets.all(8), border: OutlineInputBorder()))),
-                              ],
-                            ),
-                            Expanded(child: Column(children: [Text(match['t2p1']['name'], style: const TextStyle(fontWeight: FontWeight.bold)), Text(match['t2p2']['name'], style: const TextStyle(fontWeight: FontWeight.bold))])),
-                          ],
-                        ),
-                        const SizedBox(height: 8),
-                        SizedBox(
-                          height: 30,
-                          child: ElevatedButton(
-                            onPressed: () {
-                               if (c1.text.isNotEmpty && c2.text.isNotEmpty) {
-                                 _submitScore(index, int.parse(c1.text), int.parse(c2.text));
-                               }
-                            },
-                            child: const Text('OK'),
-                          ),
-                        )
-                      ],
-                    ),
-                  ),
-                );
-              },
-            ),
-          ),
+          
+          // ВКЛАДКА 2: ТАБЛИЦА
+          _buildLeaderboard(),
         ],
       ),
+    );
+  }
+
+  Widget _buildMatchCard(Map<String, dynamic> match) {
+    return Card(
+      color: const Color(0xFF1C2538),
+      margin: const EdgeInsets.only(bottom: 15),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          children: [
+            Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+              Text("Корт №${match['court']}", style: const TextStyle(color: Colors.grey, fontWeight: FontWeight.bold)),
+              const Icon(Icons.sports_tennis, size: 16, color: Colors.white24)
+            ]),
+            const Divider(color: Colors.white12, height: 20),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [for (var p in match['team1']) Text(p, style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w500))])),
+                
+                Row(
+                  children: [
+                    _buildScoreInput(match, 'score1'),
+                    const Padding(
+                      padding: EdgeInsets.symmetric(horizontal: 10),
+                      child: Text(":", style: TextStyle(color: Colors.white54, fontSize: 24, fontWeight: FontWeight.bold)),
+                    ),
+                    _buildScoreInput(match, 'score2'),
+                  ],
+                ),
+
+                Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.end, children: [for (var p in match['team2']) Text(p, style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w500))])),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildScoreInput(Map<String, dynamic> match, String key) {
+    // ВАЖНО: Добавляем Key, который меняется каждый раунд.
+    // Это заставляет Flutter перерисовывать поле ввода с нуля и очищать старые цифры.
+    return Container(
+      width: 50, height: 50,
+      decoration: BoxDecoration(
+        color: const Color(0xFF0A0E21), 
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.white24),
+      ),
+      child: Center(
+        child: TextField(
+          // 🔥 FIX: Уникальный ключ для каждого раунда
+          key: ValueKey("R${round}_C${match['court']}_$key"), 
+          style: const TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.bold),
+          textAlign: TextAlign.center,
+          keyboardType: TextInputType.number,
+          decoration: const InputDecoration(
+            border: InputBorder.none,
+            hintText: "0",
+            hintStyle: TextStyle(color: Colors.white24),
+            contentPadding: EdgeInsets.zero,
+          ),
+          onChanged: (val) => match[key] = int.tryParse(val) ?? 0,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildLeaderboard() {
+    var sortedPlayers = scores.keys.toList()..sort((a, b) => scores[b]!.compareTo(scores[a]!));
+
+    return ListView.builder(
+      padding: const EdgeInsets.all(16),
+      itemCount: sortedPlayers.length,
+      itemBuilder: (context, index) {
+        String player = sortedPlayers[index];
+        bool isWinner = isTournamentFinished && index == 0;
+        return Card(
+          color: isWinner ? Colors.amber.withOpacity(0.2) : const Color(0xFF1C2538),
+          margin: const EdgeInsets.only(bottom: 8),
+          child: ListTile(
+            leading: CircleAvatar(
+              backgroundColor: index < 3 ? const Color(0xFF2979FF) : Colors.white10,
+              foregroundColor: Colors.white,
+              child: isWinner ? const Icon(Icons.emoji_events, color: Colors.white) : Text("${index + 1}"),
+            ),
+            title: Text(player, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+            trailing: Text("${scores[player]} очков", style: const TextStyle(color: Colors.greenAccent, fontSize: 16, fontWeight: FontWeight.bold)),
+          ),
+        );
+      },
     );
   }
 }
