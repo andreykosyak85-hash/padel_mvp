@@ -1,113 +1,227 @@
 import 'package:flutter/material.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
+import '../main.dart'; // Доступ к supabase
 
 class TournamentScreen extends StatefulWidget {
   final String title;
-  final List<dynamic> players;
+  final String matchId;
   final int courts;
+  final String gameType; // 'Americano (Ind)', 'Americano (Team)', 'Winner Court' и т.д.
 
   const TournamentScreen({
     super.key, 
     required this.title, 
-    required this.players, 
-    required this.courts
+    required this.matchId, 
+    required this.courts,
+    required this.gameType, 
   });
 
   @override
   State<TournamentScreen> createState() => _TournamentScreenState();
 }
 
-// Добавляем SingleTickerProviderStateMixin для работы анимации вкладок
 class _TournamentScreenState extends State<TournamentScreen> with SingleTickerProviderStateMixin {
   int round = 1;
   List<Map<String, dynamic>> currentMatches = [];
-  Map<String, int> scores = {};
-  bool isTournamentFinished = false;
+  Map<String, int> scores = {}; // Очки игроков
+  List<String> playersNames = [];
   
-  // Явный контроллер для вкладок (FIX для кнопки "Посмотреть результаты")
+  // Для командных режимов храним фиксированные пары
+  List<List<String>> fixedTeams = []; 
+
+  bool isLoading = true;
+  bool isTournamentFinished = false;
   late TabController _tabController;
 
   @override
   void initState() {
     super.initState();
-    // Инициализируем контроллер: 2 вкладки
     _tabController = TabController(length: 2, vsync: this);
-    
-    // Инициализируем очки
-    for (var p in widget.players) {
-      scores[p] = 0;
+    _loadPlayersAndStart();
+  }
+
+  Future<void> _loadPlayersAndStart() async {
+    try {
+      final response = await supabase
+          .from('participants')
+          .select('user_id, profiles(username, email)')
+          .eq('match_id', widget.matchId)
+          .eq('status', 'CONFIRMED');
+
+      List<String> loadedNames = [];
+      
+      for (var record in response) {
+        final profile = record['profiles'];
+        String name = profile['username'] ?? (profile['email'] as String).split('@')[0];
+        loadedNames.add(name);
+        scores[name] = 0;
+      }
+
+      setState(() {
+        playersNames = loadedNames;
+        isLoading = false;
+      });
+
+      // Добор ботов (чтобы кратно 4)
+      int requiredPlayers = widget.courts * 4;
+      if (playersNames.length < requiredPlayers) {
+        if(mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Добавлено ${requiredPlayers - playersNames.length} ботов.")));
+        while (playersNames.length < requiredPlayers) {
+          String botName = "Бот ${playersNames.length + 1}";
+          playersNames.add(botName);
+          scores[botName] = 0;
+        }
+      }
+
+      // Если режим Командный — формируем пары сразу
+      if (widget.gameType.contains('Team') || widget.gameType.contains('Mixed')) {
+        _createFixedTeams();
+      }
+
+      _generateRound();
+    } catch (e) {
+      debugPrint("Ошибка: $e");
+      setState(() => isLoading = false);
     }
-    _generateRound();
   }
 
-  @override
-  void dispose() {
-    _tabController.dispose(); // Обязательно освобождаем ресурсы
-    super.dispose();
+  // Создание фиксированных команд (1+2, 3+4...)
+  void _createFixedTeams() {
+    fixedTeams.clear();
+    List<String> pool = List.from(playersNames);
+    // Можно добавить логику рандома или по рейтингу, пока просто по порядку
+    for (int i = 0; i < pool.length; i += 2) {
+      if (i + 1 < pool.length) {
+        fixedTeams.add([pool[i], pool[i + 1]]);
+      }
+    }
   }
 
+  // 🔥 МОЗГ ТУРНИРА: РАСПРЕДЕЛЕНИЕ 🔥
   void _generateRound() {
     if (isTournamentFinished) return;
 
     setState(() {
-      List<dynamic> pool = List.from(widget.players);
-      pool.shuffle(); // Перемешиваем игроков
-
       currentMatches.clear();
-      int matchesCount = (pool.length / 4).floor();
-      if (matchesCount > widget.courts) matchesCount = widget.courts;
+      
+      // --- ЛОГИКА 1: КОМАНДНЫЕ РЕЖИМЫ (Americano Team, Mexicano Team) ---
+      if (widget.gameType.contains('Team') || widget.gameType.contains('Mixed')) {
+        List<List<String>> teamsPool = List.from(fixedTeams);
+        
+        if (widget.gameType.contains('Mexicano')) {
+          // Мексикано Командное: Сортируем команды по сумме очков
+          teamsPool.sort((a, b) {
+            int scoreA = scores[a[0]]! + scores[a[1]]!;
+            int scoreB = scores[b[0]]! + scores[b[1]]!;
+            return scoreB.compareTo(scoreA);
+          });
+        } else {
+          // Американо Командное: Рандом
+          teamsPool.shuffle();
+        }
 
-      for (int i = 0; i < matchesCount; i++) {
-        currentMatches.add({
-          'court': i + 1,
-          'team1': [pool[i * 4], pool[i * 4 + 1]],
-          'team2': [pool[i * 4 + 2], pool[i * 4 + 3]],
-          'score1': 0,
-          'score2': 0,
-        });
+        // Создаем матчи Команда на Команду
+        int matchesCount = (teamsPool.length / 2).floor();
+        if (matchesCount > widget.courts) matchesCount = widget.courts;
+
+        for (int i = 0; i < matchesCount; i++) {
+          currentMatches.add({
+            'court': i + 1,
+            'team1': teamsPool[i * 2],     // Команда А
+            'team2': teamsPool[i * 2 + 1], // Команда Б
+            'score1': 0,
+            'score2': 0,
+          });
+        }
+      } 
+      
+      // --- ЛОГИКА 2: ИНДИВИДУАЛЬНЫЕ РЕЖИМЫ ---
+      else {
+        List<String> pool = List.from(playersNames);
+
+        // A. Winner Court (Винер Корт) и Mexicano (Мексикано)
+        // Сортируем игроков по очкам: Лучшие играют на 1 корте
+        if (widget.gameType.contains('Mexicano') || widget.gameType.contains('Winner')) {
+          pool.sort((a, b) => scores[b]!.compareTo(scores[a]!));
+        } 
+        // B. Americano (Классика) - полный рандом
+        else {
+          pool.shuffle();
+        }
+
+        // Распределение по кортам (по 4 человека)
+        int matchesCount = (pool.length / 4).floor();
+        if (matchesCount > widget.courts) matchesCount = widget.courts;
+
+        for (int i = 0; i < matchesCount; i++) {
+          // Берем четверку игроков
+          List<String> p = [pool[i*4], pool[i*4+1], pool[i*4+2], pool[i*4+3]];
+          
+          List<String> t1, t2;
+
+          // Внутри корта пары формируются:
+          if (widget.gameType.contains('Mexicano')) {
+             // 1+4 vs 2+3 (Уравнивание сил)
+             t1 = [p[0], p[3]];
+             t2 = [p[1], p[2]];
+          } else {
+             // Рандом/Winner: 1+2 vs 3+4
+             t1 = [p[0], p[1]];
+             t2 = [p[2], p[3]];
+          }
+
+          currentMatches.add({
+            'court': i + 1,
+            'team1': t1,
+            'team2': t2,
+            'score1': 0,
+            'score2': 0,
+          });
+        }
       }
     });
   }
 
+  // ЗАВЕРШЕНИЕ РАУНДА
   void _finishRound() {
-    // 1. Сохраняем очки текущего раунда
     for (var match in currentMatches) {
       int s1 = match['score1'];
       int s2 = match['score2'];
       
+      // Начисляем очки ВСЕМ участникам команды
       for (var p in match['team1']) scores[p] = (scores[p] ?? 0) + s1;
       for (var p in match['team2']) scores[p] = (scores[p] ?? 0) + s2;
+      
+      // Если "Super Mexicano" - бонус за победу на высоком корте (опционально)
+      if (widget.gameType.contains('Super')) {
+         int courtBonus = (widget.courts - (match['court'] as int) + 1) * 2; // Чем выше корт (1), тем больше бонус
+         if (s1 > s2) for (var p in match['team1']) scores[p] = scores[p]! + courtBonus;
+         if (s2 > s1) for (var p in match['team2']) scores[p] = scores[p]! + courtBonus;
+      }
     }
-    
-    // 2. Увеличиваем раунд и генерируем новые пары
-    setState(() {
-      round++;
-    });
+
+    setState(() => round++);
     _generateRound();
+    _tabController.animateTo(1); 
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Раунд $round! Пары обновлены.")));
   }
 
   void _finishTournamentEarly() {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        backgroundColor: const Color(0xFF1C2538),
-        title: const Text("Завершить турнир?", style: TextStyle(color: Colors.white)),
-        content: const Text("Время вышло или корты закрываются. Текущие результаты станут финальными.", style: TextStyle(color: Colors.white70)),
+        backgroundColor: const Color(0xFF161B22),
+        title: const Text("Завершить игру?", style: TextStyle(color: Colors.white)),
         actions: [
           TextButton(onPressed: () => Navigator.pop(context), child: const Text("Отмена", style: TextStyle(color: Colors.grey))),
           ElevatedButton(
             style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent),
             onPressed: () {
-              setState(() {
-                isTournamentFinished = true;
-              });
+              setState(() { isTournamentFinished = true; });
               Navigator.pop(context);
-              
-              // ПЕРЕКЛЮЧЕНИЕ НА ВКЛАДКУ РЕЗУЛЬТАТОВ (FIX)
               _tabController.animateTo(1); 
-              
-              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Турнир завершен! Победители определены.")));
             }, 
-            child: const Text("Завершить сейчас", style: TextStyle(color: Colors.white))
+            child: const Text("Завершить", style: TextStyle(color: Colors.white))
           ),
         ],
       ),
@@ -116,75 +230,53 @@ class _TournamentScreenState extends State<TournamentScreen> with SingleTickerPr
 
   @override
   Widget build(BuildContext context) {
-    // Убираем DefaultTabController, используем свой _tabController
+    if (isLoading) return const Scaffold(backgroundColor: Color(0xFF0D1117), body: Center(child: CircularProgressIndicator()));
+
     return Scaffold(
-      backgroundColor: const Color(0xFF0A0E21),
+      backgroundColor: const Color(0xFF0D1117),
       appBar: AppBar(
         title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(widget.title, style: const TextStyle(fontSize: 16)),
-            Text(isTournamentFinished ? "ФИНАЛ" : "Раунд $round", style: const TextStyle(fontSize: 12, color: Colors.greenAccent)),
+            Text(widget.title, style: const TextStyle(color: Colors.white, fontSize: 16)),
+            Text("${widget.gameType} • Раунд $round", style: const TextStyle(color: Colors.blue, fontSize: 12)),
           ],
         ),
-        backgroundColor: const Color(0xFF1C2538),
+        backgroundColor: const Color(0xFF161B22),
+        iconTheme: const IconThemeData(color: Colors.white),
         actions: [
-          if (!isTournamentFinished)
-            IconButton(
-              icon: const Icon(Icons.timer_off, color: Colors.redAccent),
-              tooltip: "Завершить досрочно",
-              onPressed: _finishTournamentEarly,
-            )
+          if (!isTournamentFinished) 
+            IconButton(icon: const Icon(Icons.stop_circle_outlined, color: Colors.redAccent), onPressed: _finishTournamentEarly)
         ],
         bottom: TabBar(
-          controller: _tabController, // Подключаем наш контроллер
-          indicatorColor: const Color(0xFF2979FF),
-          labelColor: Colors.white,
+          controller: _tabController, 
+          indicatorColor: const Color(0xFF2F80ED),
+          labelColor: const Color(0xFF2F80ED),
           unselectedLabelColor: Colors.grey,
-          tabs: const [
-            Tab(icon: Icon(Icons.sports_tennis), text: "Игры"),
-            Tab(icon: Icon(Icons.leaderboard), text: "Таблица"),
-          ],
+          tabs: const [Tab(text: "Игры"), Tab(text: "Таблица")]
         ),
       ),
       body: TabBarView(
-        controller: _tabController, // Подключаем наш контроллер
+        controller: _tabController,
         children: [
-          // ВКЛАДКА 1: ИГРЫ
+          // ЭКРАН МАТЧЕЙ (ВВОД СЧЕТА)
           isTournamentFinished 
-          ? Center(child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                const Icon(Icons.emoji_events, size: 80, color: Colors.amber),
+            ? Center(child: ElevatedButton(onPressed: () => _tabController.animateTo(1), child: const Text("Смотреть результаты")))
+            : ListView(padding: const EdgeInsets.all(16), children: [
+                ...currentMatches.map((m) => _buildMatchCard(m)),
                 const SizedBox(height: 20),
-                const Text("Турнир завершен!", style: TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.bold)),
-                const SizedBox(height: 10),
-                // КНОПКА ТЕПЕРЬ РАБОТАЕТ
-                ElevatedButton(
-                  onPressed: () => _tabController.animateTo(1), 
-                  style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF2979FF)),
-                  child: const Text("Посмотреть результаты", style: TextStyle(color: Colors.white))
+                SizedBox(
+                  width: double.infinity,
+                  height: 50,
+                  child: ElevatedButton(
+                    onPressed: _finishRound, 
+                    style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF238636), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))), 
+                    child: const Text("Завершить раунд", style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold))
+                  ),
                 )
-              ],
-            ))
-          : ListView(
-            padding: const EdgeInsets.all(16),
-            children: [
-              ...currentMatches.map((match) => _buildMatchCard(match)),
-              const SizedBox(height: 20),
-              ElevatedButton(
-                onPressed: _finishRound,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.green,
-                  padding: const EdgeInsets.symmetric(vertical: 16),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))
-                ),
-                child: const Text("Зафиксировать счёт и начать новый раунд", style: TextStyle(fontSize: 16, color: Colors.white, fontWeight: FontWeight.bold)),
-              ),
-            ],
-          ),
+              ]),
           
-          // ВКЛАДКА 2: ТАБЛИЦА
+          // ЭКРАН ТАБЛИЦЫ
           _buildLeaderboard(),
         ],
       ),
@@ -193,95 +285,71 @@ class _TournamentScreenState extends State<TournamentScreen> with SingleTickerPr
 
   Widget _buildMatchCard(Map<String, dynamic> match) {
     return Card(
-      color: const Color(0xFF1C2538),
+      color: const Color(0xFF161B22),
       margin: const EdgeInsets.only(bottom: 15),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          children: [
-            Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-              Text("Корт №${match['court']}", style: const TextStyle(color: Colors.grey, fontWeight: FontWeight.bold)),
-              const Icon(Icons.sports_tennis, size: 16, color: Colors.white24)
-            ]),
-            const Divider(color: Colors.white12, height: 20),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [for (var p in match['team1']) Text(p, style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w500))])),
-                
-                Row(
-                  children: [
-                    _buildScoreInput(match, 'score1'),
-                    const Padding(
-                      padding: EdgeInsets.symmetric(horizontal: 10),
-                      child: Text(":", style: TextStyle(color: Colors.white54, fontSize: 24, fontWeight: FontWeight.bold)),
-                    ),
-                    _buildScoreInput(match, 'score2'),
-                  ],
-                ),
-
-                Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.end, children: [for (var p in match['team2']) Text(p, style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w500))])),
-              ],
-            ),
-          ],
-        ),
-      ),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16), side: BorderSide(color: Colors.white.withOpacity(0.1))),
+      child: Padding(padding: const EdgeInsets.all(16), child: Column(children: [
+        Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+          Text("КОРТ ${match['court']}", style: const TextStyle(color: Color(0xFF2F80ED), fontWeight: FontWeight.bold)),
+        ]),
+        const Divider(color: Colors.white24),
+        const SizedBox(height: 10),
+        Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+          // Команда 1
+          Expanded(child: Column(children: [for (var p in match['team1']) Text(p, style: const TextStyle(color: Colors.white, fontSize: 16), textAlign: TextAlign.center, overflow: TextOverflow.ellipsis)])),
+          
+          // Счет
+          Row(children: [
+            _input(match, 'score1'), 
+            const Padding(padding: EdgeInsets.symmetric(horizontal: 10), child: Text(":", style: TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.bold))), 
+            _input(match, 'score2')
+          ]),
+          
+          // Команда 2
+          Expanded(child: Column(children: [for (var p in match['team2']) Text(p, style: const TextStyle(color: Colors.white, fontSize: 16), textAlign: TextAlign.center, overflow: TextOverflow.ellipsis)])),
+        ])
+      ])),
     );
   }
 
-  Widget _buildScoreInput(Map<String, dynamic> match, String key) {
-    // ВАЖНО: Добавляем Key, который меняется каждый раунд.
-    // Это заставляет Flutter перерисовывать поле ввода с нуля и очищать старые цифры.
-    return Container(
-      width: 50, height: 50,
-      decoration: BoxDecoration(
-        color: const Color(0xFF0A0E21), 
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.white24),
+  Widget _input(Map m, String k) => Container(
+    width: 60, height: 50,
+    decoration: BoxDecoration(color: const Color(0xFF0D1117), borderRadius: BorderRadius.circular(12), border: Border.all(color: Colors.white24)),
+    child: Center(
+      child: TextField(
+        key: ValueKey("R${round}_${m['court']}_$k"),
+        keyboardType: TextInputType.number,
+        style: const TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.bold), 
+        textAlign: TextAlign.center,
+        decoration: const InputDecoration(border: InputBorder.none, contentPadding: EdgeInsets.zero),
+        onChanged: (v) => m[k] = int.tryParse(v) ?? 0,
       ),
-      child: Center(
-        child: TextField(
-          // 🔥 FIX: Уникальный ключ для каждого раунда
-          key: ValueKey("R${round}_C${match['court']}_$key"), 
-          style: const TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.bold),
-          textAlign: TextAlign.center,
-          keyboardType: TextInputType.number,
-          decoration: const InputDecoration(
-            border: InputBorder.none,
-            hintText: "0",
-            hintStyle: TextStyle(color: Colors.white24),
-            contentPadding: EdgeInsets.zero,
-          ),
-          onChanged: (val) => match[key] = int.tryParse(val) ?? 0,
-        ),
-      ),
-    );
-  }
+    ),
+  );
 
   Widget _buildLeaderboard() {
-    var sortedPlayers = scores.keys.toList()..sort((a, b) => scores[b]!.compareTo(scores[a]!));
-
+    var sorted = scores.keys.toList()..sort((a, b) => scores[b]!.compareTo(scores[a]!));
     return ListView.builder(
       padding: const EdgeInsets.all(16),
-      itemCount: sortedPlayers.length,
-      itemBuilder: (context, index) {
-        String player = sortedPlayers[index];
-        bool isWinner = isTournamentFinished && index == 0;
-        return Card(
-          color: isWinner ? Colors.amber.withOpacity(0.2) : const Color(0xFF1C2538),
-          margin: const EdgeInsets.only(bottom: 8),
+      itemCount: sorted.length, 
+      itemBuilder: (c, i) {
+        String name = sorted[i];
+        int score = scores[name]!;
+        Color rankColor = i == 0 ? Colors.yellow : (i == 1 ? Colors.grey : (i == 2 ? Colors.orangeAccent : Colors.white));
+        
+        return Container(
+          margin: const EdgeInsets.only(bottom: 10),
+          decoration: BoxDecoration(color: const Color(0xFF161B22), borderRadius: BorderRadius.circular(12), border: Border.all(color: Colors.white.withOpacity(0.05))),
           child: ListTile(
             leading: CircleAvatar(
-              backgroundColor: index < 3 ? const Color(0xFF2979FF) : Colors.white10,
-              foregroundColor: Colors.white,
-              child: isWinner ? const Icon(Icons.emoji_events, color: Colors.white) : Text("${index + 1}"),
+              backgroundColor: Colors.transparent,
+              child: Text("#${i + 1}", style: TextStyle(color: rankColor, fontWeight: FontWeight.bold, fontSize: 18)),
             ),
-            title: Text(player, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-            trailing: Text("${scores[player]} очков", style: const TextStyle(color: Colors.greenAccent, fontSize: 16, fontWeight: FontWeight.bold)),
+            title: Text(name, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+            trailing: Text("$score", style: const TextStyle(color: Color(0xFF2F80ED), fontSize: 24, fontWeight: FontWeight.bold)),
           ),
         );
-      },
+      }
     );
   }
 }

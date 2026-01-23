@@ -1,21 +1,7 @@
 import 'package:flutter/material.dart';
-import 'dashboard_screen.dart';
-
-// --- 1. МОДЕЛЬ ДАННЫХ (Структура вопроса) ---
-class Question {
-  final String text;
-  final double weight; // Вес вопроса (0.15, 0.20 и т.д.)
-  final List<Answer> answers;
-
-  Question({required this.text, required this.weight, required this.answers});
-}
-
-class Answer {
-  final String text;
-  final double value; // Баллы от 0 до 3
-
-  Answer(this.text, this.value);
-}
+import 'package:supabase_flutter/supabase_flutter.dart';
+import '../main.dart'; // Доступ к supabase
+import 'matches_screen.dart'; // <-- ТЕПЕРЬ МЫ ИДЕМ СЮДА
 
 class QuizScreen extends StatefulWidget {
   const QuizScreen({super.key});
@@ -26,85 +12,49 @@ class QuizScreen extends StatefulWidget {
 
 class _QuizScreenState extends State<QuizScreen> {
   int _currentQuestionIndex = 0;
-  double _totalSoftScore = 0.0; // Накопленный взвешенный балл (0.0 - 3.0)
+  double _calculatedRating = 1.0;
 
-  // --- 2. БАЗА ВОПРОСОВ (Твои отфильтрованные вопросы) ---
-  final List<Question> _questions = [
-    // ❓ Вопрос 1 (Вес 15%)
-    Question(
-      text: 'Как давно ты играешь в падел?',
-      weight: 0.15,
-      answers: [
-        Answer('Меньше 3 месяцев', 0.0),
-        Answer('3–12 месяцев', 1.0),
-        Answer('1–3 года', 2.0),
-        Answer('3+ лет', 3.0),
+  // Вопросы для определения уровня
+  final List<Map<String, dynamic>> _questions = [
+    {
+      'question': 'Как долго вы играете в падел?',
+      'answers': [
+        {'text': 'Первый раз', 'score': 1.0},
+        {'text': 'Меньше месяца', 'score': 2.0},
+        {'text': 'Полгода', 'score': 3.0},
+        {'text': 'Более года', 'score': 4.5},
+        {'text': 'Я профи (Тренер)', 'score': 6.0},
       ],
-    ),
-    // ❓ Вопрос 2 (Вес 20%)
-    Question(
-      text: 'С кем ты обычно играешь?',
-      weight: 0.20,
-      answers: [
-        Answer('Новички', 0.0),
-        Answer('Любители', 1.0),
-        Answer('Уверенные игроки', 2.0),
-        Answer('Турнирные игроки', 3.0),
+    },
+    {
+      'question': 'Как у вас с подачей?',
+      'answers': [
+        {'text': 'Часто в сетку / аут', 'score': 1.5},
+        {'text': 'Просто ввожу мяч', 'score': 2.5},
+        {'text': 'Могу направить в угол', 'score': 3.5},
+        {'text': 'Сильная, крученая, точная', 'score': 5.0},
       ],
-    ),
-    // ❓ Вопрос 3 (Вес 15%)
-    Question(
-      text: 'Как ты чувствуешь себя у сетки (Volley)?',
-      weight: 0.15,
-      answers: [
-        Answer('Избегаю', 0.0),
-        Answer('Иногда выхожу', 1.0),
-        Answer('Комфортно', 2.0),
-        Answer('Моя сильная сторона', 3.0),
+    },
+    {
+      'question': 'Игра у сетки (Volley)',
+      'answers': [
+        {'text': 'Боюсь выходить к сетке', 'score': 1.5},
+        {'text': 'Отбиваю, но без атаки', 'score': 2.5},
+        {'text': 'Забиваю простые мячи', 'score': 4.0},
+        {'text': 'Агрессивная атака, x3/x4', 'score': 5.5},
       ],
-    ),
-    // ❓ Вопрос 4 (Вес 20%)
-    Question(
-      text: 'Понимаешь ли ты тактику (Bandeja, Vibora, выход)?',
-      weight: 0.20,
-      answers: [
-        Answer('Нет', 0.0),
-        Answer('Частично', 1.0),
-        Answer('Да', 2.0),
-        Answer('Использую осознанно', 3.0),
-      ],
-    ),
-    // ❓ Вопрос 5 (Вес 15%)
-    Question(
-      text: 'Твой турнирный опыт?',
-      weight: 0.15,
-      answers: [
-        Answer('Никогда', 0.0),
-        Answer('Внутриклубные', 1.0),
-        Answer('Региональные', 2.0),
-        Answer('Национальные', 3.0),
-      ],
-    ),
-    // ❓ Вопрос 6 (Вес 15%)
-    Question(
-      text: 'Как часто ты играешь сейчас?',
-      weight: 0.15,
-      answers: [
-        Answer('1 раз в месяц', 0.0),
-        Answer('1 раз в неделю', 1.0),
-        Answer('2–3 раза в неделю', 2.0),
-        Answer('4+ раз в неделю', 3.0),
-      ],
-    ),
+    },
   ];
 
-  // --- 3. ЛОГИКА РАСЧЕТА (Soft Score) ---
-  void _answerQuestion(double answerValue) {
-    // Формула: Score += (Ответ * Вес вопроса)
-    double points = answerValue * _questions[_currentQuestionIndex].weight;
-    
+  void _answerQuestion(double score) {
+    // Простая логика: усредняем рейтинг с каждым ответом
+    if (_currentQuestionIndex == 0) {
+      _calculatedRating = score;
+    } else {
+      _calculatedRating = (_calculatedRating + score) / 2;
+    }
+
     setState(() {
-      _totalSoftScore += points;
       _currentQuestionIndex++;
     });
 
@@ -113,142 +63,77 @@ class _QuizScreenState extends State<QuizScreen> {
     }
   }
 
-  void _finishQuiz() {
-    // 1. Конвертация SoftScore (0-3) в Рейтинг Падела (1.0 - 7.0)
-    // Формула: 1.0 + (SoftScore * 2)
-    double finalRating = 1.0 + (_totalSoftScore * 2);
+  // 🔥 САМОЕ ВАЖНОЕ: Сохраняем в Supabase и идем в Матчи
+  Future<void> _finishQuiz() async {
+    try {
+      final userId = supabase.auth.currentUser!.id;
 
-    // Округляем до сотых (например 3.45)
-    finalRating = double.parse(finalRating.toStringAsFixed(2));
+      // 1. Округляем рейтинг до 0.5 (например 3.2 -> 3.0, 3.4 -> 3.5)
+      double finalRating = ((_calculatedRating * 2).round() / 2);
+      if (finalRating < 1.0) finalRating = 1.0;
+      if (finalRating > 7.0) finalRating = 7.0;
 
-    print("Soft Score: $_totalSoftScore"); // Для отладки
-    print("Final Rating: $finalRating");
+      // 2. Отправляем в базу данных
+      await supabase.from('profiles').update({
+        'rating': finalRating,
+        // Сразу пропишем статы, равные общему рейтингу
+        'stats': {
+          'SMA': finalRating, 'DEF': finalRating, 'TAC': finalRating,
+          'VOL': finalRating, 'LOB': finalRating, 'PHY': finalRating
+        }
+      }).eq('id', userId);
 
-    // 2. ЗАЩИТА (PRO CHECK)
-    // Если рейтинг выше 5.5, срезаем и требуем тренера
-    if (finalRating > 5.5) {
-      _showProRestrictionDialog(finalRating);
-    } else {
-      _navigateToDashboard(finalRating);
+      if (mounted) {
+        // 3. Переходим на ГЛАВНЫЙ ЭКРАН (MatchesScreen)
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (context) => const MatchesScreen()),
+        );
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Ошибка сохранения: $e")));
     }
-  }
-
-  void _showProRestrictionDialog(double calculatedRating) {
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (context) => AlertDialog(
-        title: const Text('Вау! Высокий уровень 🏆'),
-        content: Text(
-          'Ваши ответы соответствуют рейтингу $calculatedRating.\n\n'
-          'Уровни выше 5.5 (Pro) требуют подтверждения сертифицированным тренером Padel MVP.\n\n'
-          'Пока мы установим ваш рейтинг: 5.50.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () {
-              Navigator.of(context).pop();
-              _navigateToDashboard(5.5);
-            },
-            child: const Text('Принять 5.5', style: TextStyle(fontWeight: FontWeight.bold)),
-          ),
-        ],
-      ),
-    );
-  }
-
-  void _navigateToDashboard(double rating) {
-    Navigator.pushReplacement(
-      context,
-      MaterialPageRoute(
-        builder: (context) => DashboardScreen(initialRating: rating),
-      ),
-    );
   }
 
   @override
   Widget build(BuildContext context) {
-    if (_currentQuestionIndex >= _questions.length) {
-      return const Scaffold(body: Center(child: CircularProgressIndicator()));
-    }
-
-    final question = _questions[_currentQuestionIndex];
-
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: const Color(0xFF0A0E21),
       appBar: AppBar(
-        title: Text('Шаг ${_currentQuestionIndex + 1} из ${_questions.length}'),
-        centerTitle: true,
-        automaticallyImplyLeading: false,
+        title: const Text("Оценка уровня"), 
+        backgroundColor: const Color(0xFF1C2538), 
+        automaticallyImplyLeading: false // Убираем кнопку "Назад", чтобы не сбежали
       ),
-      body: Padding(
-        padding: const EdgeInsets.all(24.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            // Прогресс бар
-            LinearProgressIndicator(
-              value: (_currentQuestionIndex + 1) / _questions.length,
-              backgroundColor: Colors.grey[200],
-              color: Colors.blueAccent,
-              minHeight: 8,
-              borderRadius: BorderRadius.circular(10),
-            ),
-            const SizedBox(height: 40),
-            
-            // Текст вопроса
-            Text(
-              question.text,
-              style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, height: 1.3),
-              textAlign: TextAlign.center,
-            ),
-            
-            const Spacer(),
-            
-            // Кнопки ответов
-            ...question.answers.map((answer) {
-              return Padding(
-                padding: const EdgeInsets.only(bottom: 16.0),
-                child: ElevatedButton(
-                  onPressed: () => _answerQuestion(answer.value),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.white,
-                    foregroundColor: Colors.black87,
-                    elevation: 0,
-                    padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 16),
-                    side: BorderSide(color: Colors.grey.shade300),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    alignment: Alignment.centerLeft, // Текст слева
+      body: _currentQuestionIndex < _questions.length
+          ? Padding(
+              padding: const EdgeInsets.all(20.0),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Text(
+                    _questions[_currentQuestionIndex]['question'],
+                    style: const TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.bold),
+                    textAlign: TextAlign.center,
                   ),
-                  child: Row(
-                    children: [
-                      // Кружочек выбора (для красоты)
-                      Container(
-                        width: 20, height: 20,
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          border: Border.all(color: Colors.grey),
+                  const SizedBox(height: 30),
+                  ...(_questions[_currentQuestionIndex]['answers'] as List<Map<String, dynamic>>).map((answer) {
+                    return Padding(
+                      padding: const EdgeInsets.only(bottom: 10),
+                      child: ElevatedButton(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFF2979FF),
+                          padding: const EdgeInsets.symmetric(vertical: 15),
                         ),
+                        onPressed: () => _answerQuestion(answer['score']),
+                        child: Text(answer['text'], style: const TextStyle(fontSize: 16, color: Colors.white)),
                       ),
-                      const SizedBox(width: 15),
-                      // Текст ответа
-                      Expanded(
-                        child: Text(
-                          answer.text,
-                          style: const TextStyle(fontSize: 16),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              );
-            }).toList(),
-            const Spacer(),
-          ],
-        ),
-      ),
+                    );
+                  }).toList(),
+                ],
+              ),
+            )
+          : const Center(child: CircularProgressIndicator()), // Крутим загрузку, пока сохраняем
     );
   }
 }
