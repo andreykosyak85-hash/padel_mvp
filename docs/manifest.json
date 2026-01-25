@@ -1,11 +1,11 @@
 {
-    "name": "padel_app",
-    "short_name": "padel_app",
-    "start_url": ".",
+    "name": "Padel IQ Pro",
+    "short_name": "Padel IQ Pro",
+    "start_url": "/",
     "display": "standalone",
-    "background_color": "#0175C2",
-    "theme_color": "#0175C2",
-    "description": "A new Flutter project.",
+    "background_color": "#0F172A",
+    "theme_color": "#0F172A",
+    "description": "Your ultimate Padel companion.",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [

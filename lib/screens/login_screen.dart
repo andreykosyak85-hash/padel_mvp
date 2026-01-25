@@ -66,12 +66,18 @@ class _LoginScreenState extends State<LoginScreen> {
   Future<void> _signInWithGoogle() async {
     setState(() => _isLoading = true);
     try {
+      // 👇 ТВОЙ НОВЫЙ ДОМЕН (обязательно со слэшем в конце!)
+      const String myRedirectUrl = 'https://padeliq.pro/'; 
+
       await _auth.signInWithOAuth(
         OAuthProvider.google,
-        redirectTo: kIsWeb ? null : 'io.supabase.flutter://login-callback',
+        // 👇 ЛОГИКА:
+        // Если Веб (kIsWeb) -> идем на сайт padeliq.pro
+        // Если Телефон -> используем стандартный коллбек приложения
+        redirectTo: kIsWeb ? myRedirectUrl : 'io.supabase.flutter://login-callback',
       );
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Ошибка Google: $e")));
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Ошибка Google входа"), backgroundColor: Colors.red));
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
