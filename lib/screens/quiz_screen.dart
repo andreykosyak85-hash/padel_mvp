@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import '../main.dart'; // Доступ к supabase
-import 'matches_screen.dart'; // <-- ТЕПЕРЬ МЫ ИДЕМ СЮДА
+import '../main.dart'; // Доступ к supabase и MainScaffold
 
 class QuizScreen extends StatefulWidget {
   const QuizScreen({super.key});
@@ -14,7 +13,6 @@ class _QuizScreenState extends State<QuizScreen> {
   int _currentQuestionIndex = 0;
   double _calculatedRating = 1.0;
 
-  // Вопросы для определения уровня
   final List<Map<String, dynamic>> _questions = [
     {
       'question': 'Как долго вы играете в падел?',
@@ -47,7 +45,6 @@ class _QuizScreenState extends State<QuizScreen> {
   ];
 
   void _answerQuestion(double score) {
-    // Простая логика: усредняем рейтинг с каждым ответом
     if (_currentQuestionIndex == 0) {
       _calculatedRating = score;
     } else {
@@ -63,20 +60,20 @@ class _QuizScreenState extends State<QuizScreen> {
     }
   }
 
-  // 🔥 САМОЕ ВАЖНОЕ: Сохраняем в Supabase и идем в Матчи
   Future<void> _finishQuiz() async {
     try {
       final userId = supabase.auth.currentUser!.id;
 
-      // 1. Округляем рейтинг до 0.5 (например 3.2 -> 3.0, 3.4 -> 3.5)
-      double finalRating = ((_calculatedRating * 2).round() / 2);
+      // 1. Округляем до сотых
+      double finalRating = ((_calculatedRating * 100).round() / 100);
+
+      // Ограничители
       if (finalRating < 1.0) finalRating = 1.0;
       if (finalRating > 7.0) finalRating = 7.0;
 
       // 2. Отправляем в базу данных
       await supabase.from('profiles').update({
-        'rating': finalRating,
-        // Сразу пропишем статы, равные общему рейтингу
+        'level': finalRating,
         'stats': {
           'SMA': finalRating, 'DEF': finalRating, 'TAC': finalRating,
           'VOL': finalRating, 'LOB': finalRating, 'PHY': finalRating
@@ -84,14 +81,16 @@ class _QuizScreenState extends State<QuizScreen> {
       }).eq('id', userId);
 
       if (mounted) {
-        // 3. Переходим на ГЛАВНЫЙ ЭКРАН (MatchesScreen)
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(builder: (context) => const MatchesScreen()),
+        // 3. Переходим на ГЛАВНЫЙ ЭКРАН С МЕНЮ
+        Navigator.of(context).pushAndRemoveUntil(
+          MaterialPageRoute(builder: (context) => const MainScaffold()), 
+          (route) => false
         );
       }
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Ошибка сохранения: $e")));
+      if(mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Ошибка сохранения: $e")));
+      }
     }
   }
 
@@ -100,9 +99,9 @@ class _QuizScreenState extends State<QuizScreen> {
     return Scaffold(
       backgroundColor: const Color(0xFF0A0E21),
       appBar: AppBar(
-        title: const Text("Оценка уровня"), 
+        title: const Text("Оценка уровня", style: TextStyle(color: Colors.white)), 
         backgroundColor: const Color(0xFF1C2538), 
-        automaticallyImplyLeading: false // Убираем кнопку "Назад", чтобы не сбежали
+        automaticallyImplyLeading: false 
       ),
       body: _currentQuestionIndex < _questions.length
           ? Padding(
@@ -124,6 +123,7 @@ class _QuizScreenState extends State<QuizScreen> {
                         style: ElevatedButton.styleFrom(
                           backgroundColor: const Color(0xFF2979FF),
                           padding: const EdgeInsets.symmetric(vertical: 15),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))
                         ),
                         onPressed: () => _answerQuestion(answer['score']),
                         child: Text(answer['text'], style: const TextStyle(fontSize: 16, color: Colors.white)),
@@ -133,7 +133,7 @@ class _QuizScreenState extends State<QuizScreen> {
                 ],
               ),
             )
-          : const Center(child: CircularProgressIndicator()), // Крутим загрузку, пока сохраняем
+          : const Center(child: CircularProgressIndicator()), 
     );
   }
 }
