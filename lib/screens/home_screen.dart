@@ -1,7 +1,7 @@
-import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import 'package:fl_chart/fl_chart.dart';
+import '../main.dart';
+import 'create_match_screen.dart'; // Импортируем новый экран
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -11,22 +11,29 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  final _supabase = Supabase.instance.client;
-  final Color _darkBg = const Color(0xFF0F172A);
+  // Цветовая палитра
+  final Color _bgDark = const Color(0xFF0D1117);
+  final Color _cardColor = const Color(0xFF1C1C1E);
   
-  bool _isLoading = false;
-  String? _avatarUrl;
-  String _username = "Игрок"; 
-  double playerLevel = 3.00; // Сюда загрузим реальный уровень
-  
-  Map<String, double> stats = {
-    'SMA': 75.0, 'VOL': 80.0, 'LOB': 70.0,
-    'DEF': 65.0, 'SPD': 72.0, 'PWR': 60.0
-  };
+  // Спортивный неон
+  final Color _neonGreen = const Color(0xFFccff00);
+  final Color _neonCyan = const Color(0xFF00E5FF);
+  final Color _neonOrange = const Color(0xFFFF5500);
 
-  int totalMatches = 24;
-  int wins = 18;
-  int winRate = 75;
+  String _username = "Игрок";
+  String _avatarUrl = "";
+  double _level = 0.0;
+  bool _isLoading = true;
+
+  // Данные для "Часов"
+  final Map<String, String> _healthStats = {
+    'kcal': '680',
+    'bpm': '145',
+    'dist': '4.5 км',
+    'last_score': '6-3, 6-4',
+    'tour_rank': '2 место',
+    'is_tournament': 'true'
+  };
 
   @override
   void initState() {
@@ -35,284 +42,321 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _loadProfile() async {
-    setState(() => _isLoading = true);
+    final uid = supabase.auth.currentUser?.id;
+    if (uid == null) return;
+
     try {
-      final userId = _supabase.auth.currentUser?.id;
-      if (userId == null) return;
+      final data = await supabase
+          .from('profiles')
+          .select('username, avatar_url, level')
+          .eq('id', uid)
+          .single();
 
-      final data = await _supabase.from('profiles').select().eq('id', userId).single();
-      
-      _username = data['username'] ?? 'Игрок';
-      _avatarUrl = data['avatar_url'];
-      
-      // 👇 ВАЖНОЕ ИСПРАВЛЕНИЕ: Загружаем уровень из базы
-      if (data['level'] != null) {
+      if (mounted) {
         setState(() {
-          playerLevel = (data['level'] as num).toDouble();
-        });
-      }
-
-      if (data['stats'] != null) {
-        final Map<String, dynamic> loadedStats = data['stats'];
-        setState(() {
-          loadedStats.forEach((key, value) {
-            if (stats.containsKey(key)) {
-              stats[key] = (value as num).toDouble();
-            }
-          });
+          _username = data['username'] ?? "Игрок";
+          _avatarUrl = data['avatar_url'] ?? "";
+          _level = (data['level'] ?? 0).toDouble();
+          _isLoading = false;
         });
       }
     } catch (e) {
-      debugPrint("Ошибка загрузки на главном: $e");
-    } finally {
-      setState(() => _isLoading = false);
+      debugPrint("Error: $e");
     }
   }
 
- // 1. ТИТУЛЫ (Вернули все ранги)
-  String _getLevelTitle(double level) {
-    if (level >= 6.0) return "PRO";
-    if (level >= 4.5) return "ADVANCED"; // (ADV)
-    if (level >= 3.5) return "INTERMEDIATE"; // (INT)
-    if (level >= 2.5) return "LOW-MID"; // (MID)
-    return "ROOKIE"; // (ROK)
-  }
-
-  // 2. ГРАДИЕНТЫ (Вернули Зеленый и Голубой)
   LinearGradient _getLevelGradient(double level) {
-    // PRO (Фиолетовый/Черный)
-    if (level >= 6.0) return const LinearGradient(colors: [Color(0xFF3E1E68), Color(0xFF000000)], begin: Alignment.topCenter, end: Alignment.bottomCenter);
-    // ADVANCED (Золото)
-    if (level >= 4.5) return const LinearGradient(colors: [Color(0xFFF2C94C), Color(0xFFAE8625)], begin: Alignment.topCenter, end: Alignment.bottomCenter);
-    // INTERMEDIATE (Синий)
-    if (level >= 3.5) return const LinearGradient(colors: [Color(0xFF2980B9), Color(0xFF2C3E50)], begin: Alignment.topCenter, end: Alignment.bottomCenter);
-    // MID (Голубой / Cyan) - ВЕРНУЛИ!
-    if (level >= 2.5) return const LinearGradient(colors: [Color(0xFF00F2FE), Color(0xFF4FACFE)], begin: Alignment.topCenter, end: Alignment.bottomCenter);
-    // ROOKIE (Зеленый) - ВЕРНУЛИ!
-    return const LinearGradient(colors: [Color(0xFF43E97B), Color(0xFF38F9D7)], begin: Alignment.topCenter, end: Alignment.bottomCenter);
-  }
-
-  // 3. ЦВЕТА ЭЛЕМЕНТОВ (Для иконок и текстов)
-  Color _getLevelColor(double level) {
-    if (level >= 6.0) return const Color(0xFF8E2DE2);
-    if (level >= 4.5) return const Color(0xFFF2C94C);
-    if (level >= 3.5) return const Color(0xFF2980B9);
-    if (level >= 2.5) return const Color(0xFF00F2FE); // Cyan
-    return const Color(0xFF43E97B); // Green
+    if (level >= 5.0) {
+      return const LinearGradient(colors: [Color(0xFFFFD700), Color(0xFFFF8C00)], begin: Alignment.topLeft, end: Alignment.bottomRight);
+    } else if (level >= 4.0) {
+      return const LinearGradient(colors: [Color(0xFF00E5FF), Color(0xFF2979FF)], begin: Alignment.topLeft, end: Alignment.bottomRight);
+    } else if (level >= 3.0) {
+      return const LinearGradient(colors: [Color(0xFF00C853), Color(0xFF64DD17)], begin: Alignment.topLeft, end: Alignment.bottomRight);
+    } else {
+      return const LinearGradient(colors: [Color(0xFF9E9E9E), Color(0xFF616161)], begin: Alignment.topLeft, end: Alignment.bottomRight);
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: _darkBg,
+      backgroundColor: _bgDark,
+      // AppBar с логотипом
       appBar: AppBar(
-        backgroundColor: Colors.transparent,
+        backgroundColor: _bgDark,
         elevation: 0,
-        title: const Text("ГЛАВНАЯ", style: TextStyle(fontWeight: FontWeight.w900, letterSpacing: 2)),
-        centerTitle: true,
+        title: Row(
+          children: [
+            // ЛОГОТИП
+            // Если файл assets/logo.png существует, он покажется. 
+            // Если нет - покажется иконка как запасной вариант (errorBuilder).
+            SizedBox(
+              height: 32, // Высота логотипа
+              child: Image.asset(
+                'assets/logo.png',
+                fit: BoxFit.contain,
+                errorBuilder: (context, error, stackTrace) {
+                  return Icon(Icons.sports_tennis, color: _neonGreen, size: 30);
+                },
+              ),
+            ),
+            const SizedBox(width: 10),
+            const Text("PADEL IQ", 
+              style: TextStyle(
+                color: Colors.white, fontWeight: FontWeight.w900, fontStyle: FontStyle.italic, letterSpacing: 1
+              )),
+          ],
+        ),
         actions: [
-          IconButton(onPressed: () {}, icon: const Icon(Icons.notifications_none, color: Colors.white))
+          IconButton(
+            icon: const Icon(Icons.notifications_none, color: Colors.white), 
+            onPressed: () {}
+          )
         ],
       ),
       body: _isLoading 
-          ? const Center(child: CircularProgressIndicator(color: Color(0xFFF2C94C)))
-          : SingleChildScrollView(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-              physics: const BouncingScrollPhysics(),
-              child: Column(
-                children: [
-                  const SizedBox(height: 10),
-                  
-                  // Карточка (теперь динамическая!)
-                  _buildHomeCard(),
-
-                  const SizedBox(height: 30),
-                  _buildQuickStats(),
-                  const SizedBox(height: 30),
-                  
-                  SizedBox(
-                    width: double.infinity,
-                    height: 55,
-                    child: ElevatedButton.icon(
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xFF2F80ED),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
-                        elevation: 10,
-                        shadowColor: const Color(0xFF2F80ED).withOpacity(0.5)
-                      ),
-                      onPressed: () {},
-                      icon: const Icon(Icons.sports_tennis, color: Colors.white),
-                      label: const Text("НАЙТИ ИГРУ", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16, letterSpacing: 1.5)),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-    );
-  }
-
-  Widget _buildHomeCard() {
-    double cardWidth = 320;
-    double cardHeight = 500;
-
-    return Center(
-      child: Container(
-        width: cardWidth,
-        height: cardHeight,
-        decoration: BoxDecoration(
-          boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.4), blurRadius: 40, spreadRadius: 5, offset: const Offset(0, 20))]
-        ),
-        child: ClipPath(
-          clipper: ElegantShieldClipper(), 
-          child: Column(
-            children: [
-              // Баннер
-              Container(
-                height: 50,
-                width: double.infinity,
-                decoration: const BoxDecoration(
-                  gradient: LinearGradient(colors: [Color(0xFFD4AF37), Color(0xFFF2C94C), Color(0xFFD4AF37)]),
-                  border: Border(bottom: BorderSide(color: Colors.white30, width: 1))
-                ),
-                child: const Center(child: Text("PADEL PRO PLAYER", style: TextStyle(color: Color(0xFF0F172A), fontWeight: FontWeight.w900, fontSize: 14, letterSpacing: 3))),
-              ),
-
-              // Тело карточки (Цвет зависит от уровня!)
-              Expanded(
-                child: Container(
-                  decoration: BoxDecoration(
-                    gradient: _getLevelGradient(playerLevel), // 🔥 ВОТ ЗДЕСЬ МАГИЯ ЦВЕТА
-                  ),
-                  child: Stack(
+        ? const Center(child: CircularProgressIndicator())
+        : SingleChildScrollView(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // === ВЕРХНИЙ БЛОК ===
+                SizedBox(
+                  height: 180,
+                  child: Row(
                     children: [
-                      Positioned.fill(child: Opacity(opacity: 0.15, child: Image.network('https://www.transparenttextures.com/patterns/cubes.png', fit: BoxFit.cover, errorBuilder: (c,e,s)=>Container()))),
-                      
-                      Padding(
-                        padding: const EdgeInsets.fromLTRB(20, 20, 20, 40),
+                      Expanded(
+                        flex: 2,
                         child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
                           children: [
-                            Expanded(
-                              flex: 3,
-                              child: Row(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Column(
-                                    children: [
-                                      Text(playerLevel.toStringAsFixed(1), style: const TextStyle(fontSize: 55, fontWeight: FontWeight.w900, color: Colors.white, height: 1)),
-                                      Text(_getLevelTitle(playerLevel), style: const TextStyle(color: Colors.white70, fontSize: 14, fontWeight: FontWeight.bold, letterSpacing: 1)),
-                                      const SizedBox(height: 10),
-                                      const Text("🇺🇦", style: TextStyle(fontSize: 30)), 
-                                    ],
-                                  ),
-                                  Expanded(
-                                    child: Center(
-                                      child: Container(
-                                        height: 150, width: 150,
-                                        decoration: BoxDecoration(
-                                          shape: BoxShape.circle,
-                                          border: Border.all(color: Colors.white.withOpacity(0.5), width: 3),
-                                          image: DecorationImage(
-                                            fit: BoxFit.cover,
-                                            image: _avatarUrl != null ? NetworkImage(_avatarUrl!) : const NetworkImage('https://i.pravatar.cc/300') 
-                                          )
-                                        ),
-                                      ),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                            
-                            Text(_username.toUpperCase(), style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w900, color: Colors.white, letterSpacing: 1.5), textAlign: TextAlign.center, maxLines: 1),
+                            Text("Привет, $_username! 👋", style: const TextStyle(color: Colors.grey, fontSize: 14)),
+                            const SizedBox(height: 5),
+                            const Text("Готов к игре?", style: TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.bold)),
                             const SizedBox(height: 15),
-
                             Expanded(
-                              flex: 3,
-                              child: RadarChart(
-                                RadarChartData(
-                                  dataSets: [
-                                    RadarDataSet(
-                                      fillColor: Colors.white.withOpacity(0.2),
-                                      borderColor: Colors.white.withOpacity(0.9),
-                                      entryRadius: 2,
-                                      dataEntries: stats.values.map((v) => RadarEntry(value: v)).toList(),
-                                      borderWidth: 2,
+                              child: Container(
+                                padding: const EdgeInsets.all(12),
+                                decoration: BoxDecoration(
+                                  color: _cardColor,
+                                  borderRadius: BorderRadius.circular(16),
+                                  border: Border.all(color: Colors.white10),
+                                  boxShadow: [BoxShadow(color: Colors.black26, blurRadius: 10, offset: const Offset(0, 4))]
+                                ),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    Row(
+                                      children: [
+                                        Icon(Icons.calendar_month, color: _neonCyan, size: 16),
+                                        const SizedBox(width: 5),
+                                        const Text("Сегодня, 19:00", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                                      ],
                                     ),
+                                    const Spacer(),
+                                    const Text("Central Padel Club", style: TextStyle(color: Colors.grey, fontSize: 12)),
+                                    const Text("Корт №4", style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
                                   ],
-                                  radarBackgroundColor: Colors.transparent,
-                                  borderData: FlBorderData(show: false),
-                                  radarBorderData: const BorderSide(color: Colors.white38, width: 1),
-                                  titleTextStyle: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold),
-                                  titlePositionPercentageOffset: 0.1, 
-                                  getTitle: (index, angle) => RadarChartTitle(text: stats.keys.elementAt(index)),
-                                  tickCount: 1,
-                                  ticksTextStyle: const TextStyle(color: Colors.transparent),
-                                  gridBorderData: const BorderSide(color: Colors.white12, width: 1),
                                 ),
                               ),
                             ),
                           ],
                         ),
                       ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        flex: 1,
+                        child: Container(
+                          decoration: BoxDecoration(
+                            gradient: _getLevelGradient(_level),
+                            borderRadius: BorderRadius.circular(20),
+                            boxShadow: [
+                              BoxShadow(color: _getLevelGradient(_level).colors.first.withOpacity(0.4), blurRadius: 15, offset: const Offset(0, 5))
+                            ]
+                          ),
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Container(
+                                width: 50, height: 50,
+                                decoration: BoxDecoration(
+                                  shape: BoxShape.circle,
+                                  border: Border.all(color: Colors.white, width: 2),
+                                  image: _avatarUrl.isNotEmpty 
+                                    ? DecorationImage(image: NetworkImage(_avatarUrl), fit: BoxFit.cover)
+                                    : null
+                                ),
+                                child: _avatarUrl.isEmpty ? const Icon(Icons.person, color: Colors.white) : null,
+                              ),
+                              const SizedBox(height: 10),
+                              Text(_level.toString(), 
+                                style: const TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.w900, fontStyle: FontStyle.italic)),
+                              const Text("LEVEL", 
+                                style: TextStyle(color: Colors.white70, fontSize: 10, fontWeight: FontWeight.bold, letterSpacing: 1)),
+                            ],
+                          ),
+                        ),
+                      ),
                     ],
                   ),
                 ),
-              ),
-            ],
+
+                const SizedBox(height: 25),
+
+                // === КНОПКИ ДЕЙСТВИЯ (ТЕПЕРЬ ЖИВЫЕ!) ===
+                Row(
+                  children: [
+                    Expanded(
+                      child: _buildActionButton(
+                        "Найти игру", 
+                        Icons.search, 
+                        Colors.blue,
+                        // Логика нажатия (пока просто Снэкбар, потом сделаем переход на Matches)
+                        () {
+                           ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Переходим к поиску...")));
+                        }
+                      )
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: _buildActionButton(
+                        "Создать матч", 
+                        Icons.add, 
+                        _neonOrange,
+                        // Логика нажатия: Открываем экран создания
+                        () {
+                          Navigator.push(context, MaterialPageRoute(builder: (context) => const CreateMatchScreen()));
+                        }
+                      )
+                    ),
+                  ],
+                ),
+
+                const SizedBox(height: 30),
+
+                // === БЛОК "HEALTH & WATCH" ===
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Text("Статистика (Last Game)", style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
+                    Icon(Icons.watch, color: Colors.grey[600], size: 18),
+                  ],
+                ),
+                const SizedBox(height: 15),
+                SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: Row(
+                    children: [
+                      _buildNeonStatCard("ККАЛ", _healthStats['kcal']!, Icons.local_fire_department, _neonOrange),
+                      const SizedBox(width: 12),
+                      _buildNeonStatCard("ПУЛЬС", _healthStats['bpm']!, Icons.favorite, Colors.redAccent),
+                      const SizedBox(width: 12),
+                      _buildNeonStatCard("ДИСТАНЦИЯ", _healthStats['dist']!, Icons.directions_run, _neonCyan),
+                      const SizedBox(width: 12),
+                      _healthStats['is_tournament'] == 'true'
+                          ? _buildNeonStatCard("ТУРНИР", _healthStats['tour_rank']!, Icons.emoji_events, Colors.amber)
+                          : _buildNeonStatCard("СЧЕТ", _healthStats['last_score']!, Icons.scoreboard, Colors.white),
+                    ],
+                  ),
+                ),
+
+                const SizedBox(height: 30),
+                const Text("Padel World", style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
+                const SizedBox(height: 15),
+                _buildNewsCard("Турнир Valencia Open", "Регистрация открыта до пятницы!", Icons.app_registration),
+                const SizedBox(height: 10),
+                _buildNewsCard("Совет тренера", "Как улучшить 'bandeja' - разбор техники.", Icons.lightbulb_outline, isTip: true),
+                const SizedBox(height: 10),
+                _buildNewsCard("Партнер рядом", "Ivan (3.5) ищет партнера на завтра.", Icons.person_add_alt_1),
+                const SizedBox(height: 80),
+              ],
+            ),
           ),
-        ),
-      ),
     );
   }
 
-  Widget _buildQuickStats() {
-    return Container(
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: const Color(0xFF1E293B),
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: Colors.white10)
+  // Обновленный виджет кнопки - принимает onTap
+  Widget _buildActionButton(String title, IconData icon, Color color, VoidCallback onTap) {
+    return ElevatedButton(
+      onPressed: onTap, // Подключили нажатие
+      style: ElevatedButton.styleFrom(
+        backgroundColor: _cardColor,
+        padding: const EdgeInsets.symmetric(vertical: 12),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12),
+          side: BorderSide(color: color.withOpacity(0.5))
+        )
       ),
       child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceAround,
+        mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          _homeStatItem("МАТЧИ", "$totalMatches", Colors.blue),
-          Container(width: 1, height: 40, color: Colors.white10),
-          _homeStatItem("ПОБЕДЫ", "$wins", Colors.green),
-          Container(width: 1, height: 40, color: Colors.white10),
-          _homeStatItem("ВИНРЕЙТ", "$winRate%", Colors.purple),
+          Icon(icon, color: color, size: 20),
+          const SizedBox(width: 8),
+          Text(title, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
         ],
       ),
     );
   }
 
-  Widget _homeStatItem(String label, String value, Color color) {
-    return Column(
-      children: [
-        Text(value, style: const TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.bold)),
-        Text(label, style: TextStyle(color: color, fontSize: 10, fontWeight: FontWeight.bold, letterSpacing: 1)),
-      ],
+  Widget _buildNeonStatCard(String label, String value, IconData icon, Color color) {
+    return Container(
+      width: 100,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: const Color(0xFF151517),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: color.withOpacity(0.3), width: 1),
+        boxShadow: [
+          BoxShadow(color: color.withOpacity(0.1), blurRadius: 8, spreadRadius: 0)
+        ]
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Icon(icon, color: color, size: 20),
+          const SizedBox(height: 10),
+          Text(value, 
+            style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold, overflow: TextOverflow.ellipsis)),
+          Text(label, 
+            style: TextStyle(color: Colors.grey[500], fontSize: 10, fontWeight: FontWeight.bold)),
+        ],
+      ),
     );
   }
-}
 
-class ElegantShieldClipper extends CustomClipper<Path> {
-  @override
-  Path getClip(Size size) {
-    Path path = Path();
-    double w = size.width;
-    double h = size.height;
-    path.moveTo(w * 0.1, 0);
-    path.lineTo(w * 0.9, 0);
-    path.quadraticBezierTo(w, 0, w, h * 0.1);
-    path.lineTo(w, h * 0.65);
-    path.quadraticBezierTo(w, h * 0.9, w * 0.5, h);
-    path.quadraticBezierTo(0, h * 0.9, 0, h * 0.65);
-    path.lineTo(0, h * 0.1);
-    path.quadraticBezierTo(0, 0, w * 0.1, 0);
-    path.close();
-    return path;
+  Widget _buildNewsCard(String title, String subtitle, IconData icon, {bool isTip = false}) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: _cardColor,
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: isTip ? Colors.amber.withOpacity(0.1) : _neonGreen.withOpacity(0.1),
+              borderRadius: BorderRadius.circular(10)
+            ),
+            child: Icon(icon, color: isTip ? Colors.amber : _neonGreen),
+          ),
+          const SizedBox(width: 15),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(title, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 15)),
+                Text(subtitle, style: const TextStyle(color: Colors.grey, fontSize: 12)),
+              ],
+            ),
+          ),
+          const Icon(Icons.arrow_forward_ios, color: Colors.grey, size: 14)
+        ],
+      ),
+    );
   }
-  @override
-  bool shouldReclip(CustomClipper<Path> oldClipper) => false;
 }
