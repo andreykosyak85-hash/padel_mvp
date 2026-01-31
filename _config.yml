@@ -1,0 +1,13 @@
+plugins:
+  - jekyll-redirect-from
+
+header:
+  X-Content-Type-Options: nosniff
+  X-Frame-Options: DENY
+  X-XSS-Protection: "1; mode=block"
+  Cache-Control: "no-cache, no-store, must-revalidate"
+  Pragma: "no-cache"
+  Expires: "0"
+
+include:
+  - .nojekyll
